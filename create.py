@@ -13,7 +13,7 @@ def read_json(filePointer):
     json = json.load(filePointer)
     return json
 
-# main function 
+# main function
 def main():
     parser = argparse.ArgumentParser(
         prog='vcontrol',
@@ -56,13 +56,22 @@ def create_command(args):
         if exception.errno != errno.EEXIST:
             raise
 
+    # create commits folder
+    COMMITS_PATH = "{}/commits".format(VCS_PATH)
+    try:
+        os.makedirs(COMMITS_PATH)
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
+
     CONFIG_PATH = "{}/config.json".format(VCS_PATH)
 
     # create userdict to store to config.json
     with open(CONFIG_PATH, 'w') as config_file:
         userdict = {
             'user': username,
-            'last-fetch': "NULL"
+            'last-fetch': "NULL",
+            'last-commit': 0
         }
         write_json(userdict, config_file)
 
