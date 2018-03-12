@@ -37,7 +37,7 @@ def main():
     if commit == 0:
         COMMIT_PATH = "V0"
     else:
-        COMMIT_PATH = "./.vcs/commits/V%05d_%s" %commit, username
+        COMMIT_PATH = "./.vcs/commits/V%05d_%s".format(commit, username)
     print(COMMIT_PATH)
 
     filelist = []

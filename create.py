@@ -70,8 +70,11 @@ def create_command(args):
     with open(CONFIG_PATH, 'w') as config_file:
         userdict = {
             'user': username,
-            'last-fetch': "NULL",
-            'last-commit': 0
+            'last_fetch': "NULL",
+            'last_commit': {
+                'user': username,
+                'value': 0
+            }
         }
         write_json(userdict, config_file)
 
