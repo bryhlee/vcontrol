@@ -3,6 +3,7 @@ import sys
 import shutil
 import json
 import filecmp
+import argparse
 
 WORKING_DIR = "."
 VCS_PATH = WORKING_DIR + "/.vcs"
@@ -23,13 +24,21 @@ def read_config_file():
 def update_config_file(config_dict):
     write_json_file(CONFIG_PATH, config_dict)
 
-def retrieve_file_paths(starting_directory):
-    file_paths = []
-    for dirpath, dirnames, filenames in os.walk(starting_directory, topdown=True):
-        dirnames[:] = [d for d in dirnames if d != '.vcs']
-        for filename in filenames:
-            file_paths.append(os.path.join(dirpath, filename))
-    return file_paths
+def clear_working_directory():
+    for file in os.listdir(WORKING_DIR):
+        if file == ".":
+            continue
+        elif file == "..":
+            continue
+        elif file == ".git":
+            continue
+        elif file == ".vcs":
+            continue
+        else:
+            if os.path.isdir(file):
+                shutil.rmtree(file)
+            else:
+                os.remove(file)
 
 def revert_command(args):
     commit_tag = args.commit_tag
@@ -39,17 +48,18 @@ def revert_command(args):
         sys.exit(1)
 
     config = read_config_file()
-    username = config['user']
+
+    clear_working_directory()
 
     REVERT_PATH = "{}/commits/{}".format(VCS_PATH, commit_tag)
     VCS_FILE_PATH = "{}/.vcs".format(REVERT_PATH)
-    vcs_dict = read_json_file(VCS_FILE_PATH)
+    vcs = read_json_file(VCS_FILE_PATH)
 
-    file_paths = retrieve_file_paths(REVERT_PATH)
+    file_paths = list(vcs['commits'])
     for file in file_paths:
-        
-
-
+        src_path = os.path.join(vcs['commits'][file]['subdir'], file)
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        shutil.copy(src_path, file)
 
 def main():
 

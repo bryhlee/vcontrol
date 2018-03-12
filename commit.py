@@ -33,7 +33,7 @@ def update_config_file(config_dict):
 def retrieve_file_paths(starting_directory):
     file_paths = []
     for dirpath, dirnames, filenames in os.walk(starting_directory, topdown=True):
-        dirnames[:] = [d for d in dirnames if d != '.vcs']
+        dirnames[:] = [d for d in dirnames if (d != '.vcs' and d != '.git')]
         for filename in filenames:
             file_paths.append(os.path.join(dirpath, filename))
     return file_paths
@@ -51,10 +51,6 @@ def determine_unchanged_files(commit_user, last_commit_value, working_files):
         if file in vcs['commits']:
             if filecmp.cmp(file, vcs['commits'][file]['subdir'] + file[1:]):
                 unchanged_files.append(file)
-
-    if unchanged_files:
-        print("No files have been changed and therefore there is nothing to commit.'")
-        sys.exit(1)
 
     return unchanged_files
 
@@ -97,6 +93,10 @@ def main():
 
     unchanged_files = determine_unchanged_files(config['last_commit']['user'], last_commit_value, working_files)
 
+    if unchanged_files == working_files:
+        print("No files have been changed and therefore there is nothing to commit.")
+        sys.exit(1)
+
     def custom_ignore(path, filenames):
         ignore = []
         for filename in filenames:
@@ -104,18 +104,20 @@ def main():
                 ignore.append(filename)
             elif filename == '.vcs':
                 ignore.append(filename)
+            elif filename == '.git':
+                ignore.append(filename)
         return ignore
 
     shutil.copytree(src=WORKING_DIR,
                     dst=NEW_COMMIT_SUBDIR,
                     ignore=custom_ignore)
-    
+
     create_vcs_file(unchanged_files, config['last_commit']['user'], config['user'], new_commit_value, last_commit_value, NEW_COMMIT_SUBDIR, working_files)
 
     config['last_commit']['value'] = new_commit_value
     config['last_commit']['user'] = config['user']
     update_config_file(config)
-        
+
 
 if __name__ == "__main__":
     main()
