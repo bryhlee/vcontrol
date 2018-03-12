@@ -33,7 +33,7 @@ def update_config_file(config_dict):
 def retrieve_file_paths(starting_directory):
     file_paths = []
     for dirpath, dirnames, filenames in os.walk(starting_directory, topdown=True):
-        dirnames[:] = [d for d in dirnames if d != '.vcs']
+        dirnames[:] = [d for d in dirnames if (d != '.vcs' and d != '.git')]
         for filename in filenames:
             file_paths.append(os.path.join(dirpath, filename))
     return file_paths
@@ -111,13 +111,13 @@ def main():
     shutil.copytree(src=WORKING_DIR,
                     dst=NEW_COMMIT_SUBDIR,
                     ignore=custom_ignore)
-    
+
     create_vcs_file(unchanged_files, config['last_commit']['user'], config['user'], new_commit_value, last_commit_value, NEW_COMMIT_SUBDIR, working_files)
 
     config['last_commit']['value'] = new_commit_value
     config['last_commit']['user'] = config['user']
     update_config_file(config)
-        
+
 
 if __name__ == "__main__":
     main()
