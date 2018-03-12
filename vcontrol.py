@@ -6,9 +6,11 @@ import shutil
 import filecmp
 import argparse
 
+
 WORKING_DIR = "."
 VCS_PATH = WORKING_DIR + "/.vcs"
 CONFIG_PATH = VCS_PATH + "/config.json"
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -22,11 +24,17 @@ def main():
     parser_create.set_defaults(func=create_command)
 
     parser_info = subparsers.add_parser('info', help='Shows information regarding the status of the current repository.')
+    parser_info.set_defaults(func=info_command)
 
     parser_commit = subparsers.add_parser('commit', help='Commits changes in the current repository.')
+    parser_commit.add_argument('-i', '--ignore', dest='ignore', nargs='*', help='Ignores file(s) for commit.', default=[])
     parser_commit.set_defaults(func=commit_command)
 
     parser_fetch = subparsers.add_parser('fetch', help='Fetches commits from a specified repository.')
+
+    parser_revert = subparsers.add_parser('revert', help='Reverts the working directory back to a previous commit stage.')
+    parser_revert.add_argument('commit_tag', type=str, help='Specified vcontrol commit to revert the project to.')
+    parser_revert.set_defaults(func=revert_command)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -34,43 +42,52 @@ def main():
     args = parser.parse_args()
     args.func(args)
 
+
 def write_json(data, filePointer):
     json.dump(data, filePointer)
+
 
 def write_json_file(filename, data):
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4,)
 
+
 def read_json(filePointer):
     json = json.load(filePointer)
     return json
+
 
 def read_json_file(filename):
     with open(filename, 'r') as f:
         data = json.load(f)
         return data
 
+
 def read_config_file():
     return read_json_file(CONFIG_PATH)
+
 
 def update_config_file(config_dict):
     write_json_file(CONFIG_PATH, config_dict)
 
-def get_file_paths(starting_directory):
+
+def get_file_paths(starting_directory, to_ignore):
     file_paths = []
     for dirpath, dirnames, filenames in os.walk(starting_directory, topdown=True):
-        dirnames[:] = [d for d in dirnames if d != '.vcs']
+        dirnames[:] = [d for d in dirnames if d not in to_ignore]
         for filename in filenames:
             file_paths.append(os.path.join(dirpath, filename))
     return file_paths
 
-def get_unchanged_deleted_files(commit_user, last_commit_value, working_files):
+
+def get_unchanged_deleted_files(working_files, config):
     unchanged_files = []
     deleted_files = []
-    if last_commit_value == 0:
+    if config['last_commit']['value'] == 0:
         return unchanged_files, deleted_files
 
-    LAST_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(last_commit_value, commit_user)
+    LAST_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(config['last_commit']['value'],
+                                                                 config['last_commit']['user'])
 
     vcs = read_json_file('{}/.vcs'.format(LAST_COMMIT_SUBDIR))
 
@@ -82,17 +99,17 @@ def get_unchanged_deleted_files(commit_user, last_commit_value, working_files):
             deleted_files.append(file)
     return unchanged_files, deleted_files
 
-def create_commit_subdir(working_files, unchanged_files, deleted_files, last_commit_user, last_commit_value, new_commit_user, new_commit_value):
-    print('commit:')
 
-    NEW_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(new_commit_value, new_commit_user)
+def create_commit_subdir(working_files, unchanged_files, deleted_files, to_ignore, config):
+    new_commit_value = config['last_commit']['value'] + 1
+    NEW_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(new_commit_value, config['last_commit']['user'])
 
     def custom_ignore(path, filenames):
         ignore = []
         for filename in filenames:
             if os.path.join(path, filename) in unchanged_files:
                 ignore.append(filename)
-            elif filename == '.vcs':
+            elif filename in to_ignore:
                 ignore.append(filename)
         return ignore
 
@@ -100,25 +117,101 @@ def create_commit_subdir(working_files, unchanged_files, deleted_files, last_com
                     dst=NEW_COMMIT_SUBDIR,
                     ignore=custom_ignore)
 
-    if last_commit_value == 0:
+    if config['last_commit']['value'] == 0:
         vcs = {'commits': {}, 'latest_fetch': {}}
     else:
-        last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(last_commit_value, last_commit_user)
+        last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
+                                                                         config['last_commit']['user'])
         vcs = read_json_file(last_vcs_filepath)
         for deleted_file in deleted_files:
-            print('  - deletion: {}'.format(deleted_file))
             vcs['commits'].pop(deleted_file)
     for file_path in [fp for fp in working_files if fp not in unchanged_files]:
-        if file_path not in vcs['commits']:
-            print('  + addition: {}'.format(file_path))
-        else:
-            print('  ~ change: {}'.format(file_path))
         vcs['commits'][file_path] = {
             'value': new_commit_value,
             'subdir': NEW_COMMIT_SUBDIR,
-            'user': new_commit_user
+            'user': config['user']
         }
     write_json_file(NEW_COMMIT_SUBDIR + '/.vcs', vcs)
+
+
+def clear_working_directory():
+    for file in os.listdir(WORKING_DIR):
+        if file == '.':
+            continue
+        elif file == '..':
+            continue
+        elif file == '.vcs':
+            continue
+        else:
+            if os.path.isdir(file):
+                shutil.rmtree(file)
+            else:
+                os.remove(file)
+
+
+def print_file_status(working_files, unchanged_files, deleted_files, config, primer=None):
+    if primer is not None:
+        print('{}:'.format(primer))
+    if config['last_commit']['value'] == 0:
+        for file in working_files:
+            print('  {}+{} addition: {}'.format('\033[92m', '\033[0m', file))
+    else:
+        last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
+                                                                         config['last_commit']['user'])
+        vcs = read_json_file(last_vcs_filepath)
+        for deleted_file in deleted_files:
+            print('  {}-{} deletion: {}'.format('\033[91m', '\033[0m', deleted_file))
+        for file_path in [fp for fp in working_files if fp not in unchanged_files]:
+            if file_path not in vcs['commits']:
+                print('  {}+{} addition: {}'.format('\033[92m', '\033[0m', file_path))
+            else:
+                print('  {}~{} change: {}'.format('\033[93m', '\033[0m', file_path))
+
+
+def info_command(args):
+    if not os.path.exists(VCS_PATH):
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
+        sys.exit(1)
+
+    working_files = get_file_paths('.', ['.vcs'])
+    config = read_config_file()
+    last_commit_tag = 'V{:05d}_{}'.format(config['last_commit']['value'], config['last_commit']['user'])
+    print('On commit tag {}'.format(last_commit_tag))
+
+    unchanged_files, deleted_files = get_unchanged_deleted_files(working_files, config)
+    if unchanged_files == working_files and not deleted_files:
+        print("Working directory is clean - no changes.")
+    else:
+        print_file_status(working_files, unchanged_files, deleted_files, config, 'info')
+
+def revert_command(args):
+    if not os.path.exists(VCS_PATH):
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
+        sys.exit(1)
+
+    confirm = input('Revert to commit {}? You will lose uncommited changes in your working directory. (y/N)'.format(args.commit_tag))
+    if confirm != 'y':
+        if confirm != 'N':
+            print('Invalid input...')
+        print('Canceling revert.')
+        sys.exit(1)
+
+    print('revert:')
+
+    config = read_config_file()
+
+    clear_working_directory()
+
+    REVERT_PATH = "{}/commits/{}".format(VCS_PATH, args.commit_tag)
+    VCS_FILE_PATH = "{}/.vcs".format(REVERT_PATH)
+    vcs = read_json_file(VCS_FILE_PATH)
+
+    file_paths = list(vcs['commits'])
+    for file in file_paths:
+        print('  {}->{} revert: {} | {}'.format('\033[93m', '\033[0m', file, os.path.basename(vcs['commits'][file]['subdir'])))
+        src_path = os.path.join(vcs['commits'][file]['subdir'], file)
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        shutil.copy(src_path, file)
 
 
 def commit_command(args):
@@ -126,41 +219,41 @@ def commit_command(args):
         print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
         sys.exit(1)
 
-    config = read_config_file()
-    working_files = get_file_paths('.')
+    args.ignore.append('.vcs')
+    working_files = get_file_paths('.', args.ignore)
 
     if not working_files:
         print("No files exist to be commited.")
         sys.exit(1)
 
-    last_commit_value = config['last_commit']['value']
-    new_commit_value = last_commit_value + 1
+    config = read_config_file()
 
-    print('Creating new commit V{:05d} --> V{:05d}'.format(last_commit_value, new_commit_value))
+    new_commit_value = config['last_commit']['value'] + 1
+    last_commit_tag = 'V{:05d}_{}'.format(config['last_commit']['value'], config['last_commit']['user'])
+    new_commit_tag = 'V{:05d}_{}'.format(new_commit_value, config['user'])
 
-    unchanged_files, deleted_files = get_unchanged_deleted_files(
-        commit_user=config['last_commit']['user'],
-        last_commit_value=last_commit_value,
-        working_files=working_files
-    )
+    print('Creating new commit {} --> {}'.format(last_commit_tag, new_commit_tag))
+
+    unchanged_files, deleted_files = get_unchanged_deleted_files(working_files, config)
 
     if unchanged_files == working_files and not deleted_files:
         print("No files have been changed and therefore there is nothing to commit.")
         sys.exit(1)
-    
+
+    print_file_status(working_files, unchanged_files, deleted_files, config, 'commit')
+
     create_commit_subdir(
         working_files=working_files,
         unchanged_files=unchanged_files,
         deleted_files=deleted_files,
-        last_commit_user=config['last_commit']['user'],
-        last_commit_value=last_commit_value,
-        new_commit_user=config['user'],
-        new_commit_value=new_commit_value
+        to_ignore=args.ignore,
+        config=config
     )
 
     config['last_commit']['value'] = new_commit_value
     config['last_commit']['user'] = config['user']
     update_config_file(config)
+    print('Changes successfully commited, on tag {}'.format(new_commit_tag))
 
 
 def create_command(args):
