@@ -83,6 +83,8 @@ def get_unchanged_deleted_files(commit_user, last_commit_value, working_files):
     return unchanged_files, deleted_files
 
 def create_commit_subdir(working_files, unchanged_files, deleted_files, last_commit_user, last_commit_value, new_commit_user, new_commit_value):
+    print('commit:')
+
     NEW_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(new_commit_value, new_commit_user)
 
     def custom_ignore(path, filenames):
@@ -104,10 +106,13 @@ def create_commit_subdir(working_files, unchanged_files, deleted_files, last_com
         last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(last_commit_value, last_commit_user)
         vcs = read_json_file(last_vcs_filepath)
         for deleted_file in deleted_files:
-            print('Commiting deletion of {}'.format(deleted_file))
+            print('  - deletion: {}'.format(deleted_file))
             vcs['commits'].pop(deleted_file)
     for file_path in [fp for fp in working_files if fp not in unchanged_files]:
-        print('Commiting {}'.format(file_path))
+        if file_path not in vcs['commits']:
+            print('  + addition: {}'.format(file_path))
+        else:
+            print('  ~ change: {}'.format(file_path))
         vcs['commits'][file_path] = {
             'value': new_commit_value,
             'subdir': NEW_COMMIT_SUBDIR,
@@ -130,6 +135,8 @@ def commit_command(args):
 
     last_commit_value = config['last_commit']['value']
     new_commit_value = last_commit_value + 1
+
+    print('Creating new commit V{:05d} --> V{:05d}'.format(last_commit_value, new_commit_value))
 
     unchanged_files, deleted_files = get_unchanged_deleted_files(
         commit_user=config['last_commit']['user'],
