@@ -10,6 +10,7 @@ import argparse
 WORKING_DIR = "."
 VCS_PATH = WORKING_DIR + "/.vcs"
 CONFIG_PATH = VCS_PATH + "/config.json"
+COMMITS_PATH = VCS_PATH + "/commits"
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
     subparsers = parser.add_subparsers(title='command list', metavar='action')
 
     parser_create = subparsers.add_parser('create', help='Initializes a new vcontrol repository as the current directory.')
+    parser_create.add_argument('repo_name', type=str, help='Specified name the vcontrol repo.')
     parser_create.add_argument('username', type=str, help='Specified username for the vcontrol repo.')
     parser_create.set_defaults(func=create_command)
 
@@ -31,6 +33,9 @@ def main():
     parser_commit.set_defaults(func=commit_command)
 
     parser_fetch = subparsers.add_parser('fetch', help='Fetches commits from a specified repository.')
+    parser_fetch.add_argument('dir', type=str, help='Directory of target repository to fetch commits from.')
+    parser_fetch.add_argument('-rl', '--revert-latest', dest='revert', action='store_true', help='Loads the target repository latest commit on fetch.', default=False)
+    parser_fetch.set_defaults(func=fetch_command)
 
     parser_revert = subparsers.add_parser('revert', help='Reverts the working directory back to a previous commit stage.')
     parser_revert.add_argument('commit_tag', type=str, help='Specified vcontrol commit to revert the project to.')
@@ -86,7 +91,7 @@ def get_unchanged_deleted_files(working_files, config):
     if config['last_commit']['value'] == 0:
         return unchanged_files, deleted_files
 
-    LAST_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(config['last_commit']['value'],
+    LAST_COMMIT_SUBDIR = COMMITS_PATH + '/V{:05d}_{}'.format(config['last_commit']['value'],
                                                                  config['last_commit']['user'])
 
     vcs = read_json_file('{}/.vcs'.format(LAST_COMMIT_SUBDIR))
@@ -102,7 +107,7 @@ def get_unchanged_deleted_files(working_files, config):
 
 def create_commit_subdir(working_files, unchanged_files, deleted_files, to_ignore, config):
     new_commit_value = config['last_commit']['value'] + 1
-    NEW_COMMIT_SUBDIR = VCS_PATH + '/commits/V{:05d}_{}'.format(new_commit_value, config['last_commit']['user'])
+    NEW_COMMIT_SUBDIR = COMMITS_PATH + '/V{:05d}_{}'.format(new_commit_value, config['last_commit']['user'])
 
     def custom_ignore(path, filenames):
         ignore = []
@@ -120,7 +125,7 @@ def create_commit_subdir(working_files, unchanged_files, deleted_files, to_ignor
     if config['last_commit']['value'] == 0:
         vcs = {'commits': {}, 'latest_fetch': {}}
     else:
-        last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
+        last_vcs_filepath = COMMITS_PATH + '/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
                                                                          config['last_commit']['user'])
         vcs = read_json_file(last_vcs_filepath)
         for deleted_file in deleted_files:
@@ -134,8 +139,8 @@ def create_commit_subdir(working_files, unchanged_files, deleted_files, to_ignor
     write_json_file(NEW_COMMIT_SUBDIR + '/.vcs', vcs)
 
 
-def clear_working_directory():
-    for file in os.listdir(WORKING_DIR):
+def clear_directory(target_dir):
+    for file in os.listdir(target_dir):
         if file == '.':
             continue
         elif file == '..':
@@ -156,7 +161,7 @@ def print_file_status(working_files, unchanged_files, deleted_files, config, pri
         for file in working_files:
             print('  {}+{} addition: {}'.format('\033[92m', '\033[0m', file))
     else:
-        last_vcs_filepath = VCS_PATH + '/commits/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
+        last_vcs_filepath = COMMITS_PATH + '/V{:05d}_{}/.vcs'.format(config['last_commit']['value'],
                                                                          config['last_commit']['user'])
         vcs = read_json_file(last_vcs_filepath)
         for deleted_file in deleted_files:
@@ -168,15 +173,57 @@ def print_file_status(working_files, unchanged_files, deleted_files, config, pri
                 print('  {}~{} change: {}'.format('\033[93m', '\033[0m', file_path))
 
 
+def fetch_command(args):
+    if not os.path.exists(VCS_PATH):
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [repo_name] [username]'")
+        sys.exit(1)
+
+    if not os.path.exists(args.dir):
+        print("Target vcontrol repository directory does not exist and therefore commits cannot be fetched.")
+        sys.exit(1)
+
+    TARGET_REPO_DIR = args.dir.strip('/')
+    TARGET_VCS_PATH = TARGET_REPO_DIR + '/.vcs'
+    TARGET_COMMIT_PATH = TARGET_VCS_PATH + '/commits'
+
+    if not os.path.exists(TARGET_VCS_PATH):
+        print("Target vcontrol repository has not been intialized.")
+        sys.exit(1)
+
+    target_config = read_json_file(TARGET_VCS_PATH + '/config.json')
+
+    print('fetching {} commits at {}...'.format(target_config['repo_name'], TARGET_REPO_DIR))
+
+    for commit_subdir in os.listdir(TARGET_COMMIT_PATH):
+        shutil.copytree(src=TARGET_COMMIT_PATH + '/{}'.format(commit_subdir),
+                        dst=COMMITS_PATH + '/{}'.format(commit_subdir))
+
+    print('fetch complete! Commits from repository {} available in this repository'.format(target_config['repo_name']))
+
+    if args.revert:
+        confirm = input('Revert flag is set, revert to commit {}? You will lose uncommited changes in your working directory. (y/N)\n'.format(args.commit_tag))
+        if confirm != 'y':
+            if confirm != 'N':
+                print('Invalid input...')
+            print('Canceling revert.')
+            sys.exit(1)
+
+        target_config = read_json_file(TARGET_VCS_PATH + '/config.json')
+
+        revert('V{:05d}_{}'.format(target_config['last_commit']['value'], target_config['last_commit']['user']),
+               WORKING_DIR,
+               COMMITS_PATH)
+
+
 def info_command(args):
     if not os.path.exists(VCS_PATH):
-        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [repo_name] [username]'")
         sys.exit(1)
 
     working_files = get_file_paths('.', ['.vcs'])
     config = read_config_file()
     last_commit_tag = 'V{:05d}_{}'.format(config['last_commit']['value'], config['last_commit']['user'])
-    print('On commit tag {}'.format(last_commit_tag))
+    print('In repository {} --> commit tag {}'.format(config['repo_name'], last_commit_tag))
 
     unchanged_files, deleted_files = get_unchanged_deleted_files(working_files, config)
     if unchanged_files == working_files and not deleted_files:
@@ -184,25 +231,16 @@ def info_command(args):
     else:
         print_file_status(working_files, unchanged_files, deleted_files, config, 'info')
 
-def revert_command(args):
-    if not os.path.exists(VCS_PATH):
-        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
-        sys.exit(1)
 
-    confirm = input('Revert to commit {}? You will lose uncommited changes in your working directory. (y/N)'.format(args.commit_tag))
-    if confirm != 'y':
-        if confirm != 'N':
-            print('Invalid input...')
-        print('Canceling revert.')
+def revert(commit_tag, target_working_dir, target_commit_path):
+    REVERT_PATH = target_commit_path + "/{}".format(commit_tag)
+    if not os.path.exists(REVERT_PATH):
+        print("Commit tag does not exist. Revert canceled.")
         sys.exit(1)
 
     print('revert:')
-
-    config = read_config_file()
-
-    clear_working_directory()
-
-    REVERT_PATH = "{}/commits/{}".format(VCS_PATH, args.commit_tag)
+    clear_directory(target_working_dir)
+    
     VCS_FILE_PATH = "{}/.vcs".format(REVERT_PATH)
     vcs = read_json_file(VCS_FILE_PATH)
 
@@ -214,9 +252,24 @@ def revert_command(args):
         shutil.copy(src_path, file)
 
 
+def revert_command(args):
+    if not os.path.exists(VCS_PATH):
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [repo_name] [username]'")
+        sys.exit(1)
+
+    confirm = input('Revert to commit {}? You will lose uncommited changes in your working directory. (y/N)\n'.format(args.commit_tag))
+    if confirm != 'y':
+        if confirm != 'N':
+            print('Invalid input...')
+        print('Canceling revert.')
+        sys.exit(1)
+
+    revert(args.commit_tag, WORKING_DIR, COMMITS_PATH)
+
+
 def commit_command(args):
     if not os.path.exists(VCS_PATH):
-        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [username]'")
+        print("Repository has not been intialized, or isn't detected. Run 'vcontrol create [repo_name] [username]'")
         sys.exit(1)
 
     args.ignore.append('.vcs')
@@ -258,8 +311,9 @@ def commit_command(args):
 
 def create_command(args):
     username = args.username
+    repo_name = args.repo_name
 
-    print("Creating repository for {}".format(username))
+    print('Creating repository {} for user {}...'.format(repo_name, username))
 
     # check if .vcs folder already exists
     if os.path.exists(VCS_PATH):
@@ -273,8 +327,6 @@ def create_command(args):
         if exception.errno != errno.EEXIST:
             raise
 
-    # create commits folder
-    COMMITS_PATH = "{}/commits".format(VCS_PATH)
     try:
         os.makedirs(COMMITS_PATH)
     except OSError as exception:
@@ -283,7 +335,8 @@ def create_command(args):
 
     CONFIG_PATH = "{}/config.json".format(VCS_PATH)
 
-    userdict = {
+    config = {
+        'repo_name': repo_name,
         'user': username,
         'last_fetch': "NULL",
         'last_commit': {
@@ -291,7 +344,8 @@ def create_command(args):
             'value': 0
         }
     }
-    update_config_file(userdict)
+    update_config_file(config)
+    print('Done - repository intialized and created.')
 
 if __name__ == "__main__":
     main()
