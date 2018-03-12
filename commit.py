@@ -52,10 +52,6 @@ def determine_unchanged_files(commit_user, last_commit_value, working_files):
             if filecmp.cmp(file, vcs['commits'][file]['subdir'] + file[1:]):
                 unchanged_files.append(file)
 
-    if unchanged_files:
-        print("No files have been changed and therefore there is nothing to commit.'")
-        sys.exit(1)
-
     return unchanged_files
 
 def create_vcs_file(unchanged_files, last_commit_user, new_commit_user, new_commit_value, last_commit_value, new_commit_dir, file_paths):
@@ -97,12 +93,18 @@ def main():
 
     unchanged_files = determine_unchanged_files(config['last_commit']['user'], last_commit_value, working_files)
 
+    if unchanged_files == working_files:
+        print("No files have been changed and therefore there is nothing to commit.")
+        sys.exit(1)
+
     def custom_ignore(path, filenames):
         ignore = []
         for filename in filenames:
             if os.path.join(path, filename) in unchanged_files:
                 ignore.append(filename)
             elif filename == '.vcs':
+                ignore.append(filename)
+            elif filename == '.git':
                 ignore.append(filename)
         return ignore
 
