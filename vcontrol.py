@@ -154,6 +154,26 @@ def clear_directory(target_dir):
                 os.remove(file)
 
 
+def revert(commit_tag, target_working_dir, target_commit_path):
+    REVERT_PATH = target_commit_path + "/{}".format(commit_tag)
+    if not os.path.exists(REVERT_PATH):
+        print("Commit tag does not exist. Revert canceled.")
+        sys.exit(1)
+
+    print('revert:')
+    clear_directory(target_working_dir)
+    
+    VCS_FILE_PATH = "{}/.vcs".format(REVERT_PATH)
+    vcs = read_json_file(VCS_FILE_PATH)
+
+    file_paths = list(vcs['commits'])
+    for file in file_paths:
+        print('  {}->{} revert: {} | {}'.format('\033[93m', '\033[0m', file, os.path.basename(vcs['commits'][file]['subdir'])))
+        src_path = os.path.join(vcs['commits'][file]['subdir'], file)
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        shutil.copy(src_path, file)
+
+
 def print_file_status(working_files, unchanged_files, deleted_files, config, primer=None):
     if primer is not None:
         print('{}:'.format(primer))
@@ -232,25 +252,6 @@ def info_command(args):
         print_file_status(working_files, unchanged_files, deleted_files, config, 'info')
 
 
-def revert(commit_tag, target_working_dir, target_commit_path):
-    REVERT_PATH = target_commit_path + "/{}".format(commit_tag)
-    if not os.path.exists(REVERT_PATH):
-        print("Commit tag does not exist. Revert canceled.")
-        sys.exit(1)
-
-    print('revert:')
-    clear_directory(target_working_dir)
-    
-    VCS_FILE_PATH = "{}/.vcs".format(REVERT_PATH)
-    vcs = read_json_file(VCS_FILE_PATH)
-
-    file_paths = list(vcs['commits'])
-    for file in file_paths:
-        print('  {}->{} revert: {} | {}'.format('\033[93m', '\033[0m', file, os.path.basename(vcs['commits'][file]['subdir'])))
-        src_path = os.path.join(vcs['commits'][file]['subdir'], file)
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        shutil.copy(src_path, file)
-
 
 def revert_command(args):
     if not os.path.exists(VCS_PATH):
@@ -275,9 +276,9 @@ def commit_command(args):
     args.ignore.append('.vcs')
     working_files = get_file_paths('.', args.ignore)
 
-    if not working_files:
-        print("No files exist to be commited.")
-        sys.exit(1)
+    #if not working_files:
+    #    print("No files exist to be commited.")
+    #    sys.exit(1)
 
     config = read_config_file()
 
